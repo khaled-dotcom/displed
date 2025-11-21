@@ -1,8 +1,8 @@
 import streamlit as st
 from inference_sdk import InferenceHTTPClient
 import cv2
-import numpy as np
 from streamlit_webrtc import webrtc_streamer, WebRtcMode
+import numpy as np
 
 # ----------------------
 # Initialize Roboflow Client
@@ -14,13 +14,13 @@ CLIENT = InferenceHTTPClient(
 
 st.set_page_config(page_title="Disabled Person Detector", layout="wide")
 st.title("♿ Real-time Disabled Person Detector")
-st.markdown("Live wheelchair/person-with-disability detection using Roboflow + Streamlit WebRTC")
+st.markdown("Live detection of disabled persons from your webcam.")
 
-# alert sound file in project folder
+# alert sound file
 alert_sound = "alert.wav"
 
-# Draw bounding boxes
-def draw_boxes(image, predictions):
+# Draw bounding boxes on frame
+def draw_boxes(frame, predictions):
     for pred in predictions:
         x, y = pred["x"], pred["y"]
         w, h = pred["width"], pred["height"]
@@ -30,36 +30,36 @@ def draw_boxes(image, predictions):
         x1, y1 = int(x - w/2), int(y - h/2)
         x2, y2 = int(x + w/2), int(y + h/2)
 
-        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 3)
-        cv2.putText(image, f"{cls} {conf:.2f}", (x1, y1-10),
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
+        cv2.putText(frame, f"{cls} {conf:.2f}", (x1, y1-10),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
-    return image
+    return frame
 
-# Webcam frame callback
-def video_callback(frame):
+# Callback function for live video
+def video_frame_callback(frame):
     img = frame.to_ndarray(format="bgr24")
-    cv2.imwrite("frame.jpg", img)
+    cv2.imwrite("frame.jpg", img)  # save frame temporarily
 
-    # Inference
+    # Inference from Roboflow
     result = CLIENT.infer("frame.jpg", model_id="disabled-person-pkgbq/2")
 
-    # Draw boxes
+    # Draw bounding boxes
     img = draw_boxes(img, result["predictions"])
 
-    # Trigger detection flag
+    # Set session state for alert
     st.session_state["detected"] = len(result["predictions"]) > 0
 
     return img
 
-# Run WebRTC streamer
+# Run webcam live streamer
 webrtc_streamer(
-    key="realtime",
+    key="example",
     mode=WebRtcMode.SENDRECV,
-    video_frame_callback=video_callback,
+    video_frame_callback=video_frame_callback,
     media_stream_constraints={"video": True, "audio": False},
 )
 
-# Alert section
+# Sound / alert if detected
 if st.session_state.get("detected", False):
     st.error("🚨 Disabled Person Detected!")
     audio_file = open(alert_sound, "rb")
