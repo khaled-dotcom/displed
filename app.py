@@ -1,30 +1,60 @@
 import streamlit as st
-from inference_sdk import InferenceHTTPClient
-from streamlit_webrtc import webrtc_streamer, WebRtcMode
-import av
 import cv2
 import numpy as np
-import tempfile
+from inference_sdk import InferenceHTTPClient
+import time
 import threading
 
-# Roboflow Client
+st.set_page_config(page_title="Disabled Person Detector", layout="wide")
+st.markdown("""
+<style>
+    .block-container {
+        padding-top: 1.5rem;
+        padding-bottom: 1.5rem;
+        max-width: 1100px;
+    }
+    .stButton > button { width: 100%; }
+</style>
+""", unsafe_allow_html=True)
+st.markdown("### ♿ Disabled Person Detector", unsafe_allow_html=True)
+
+# Roboflow client
 CLIENT = InferenceHTTPClient(
     api_url="https://serverless.roboflow.com",
     api_key="iCUnknIN3Y51KFSzRiSw"
 )
 
-st.set_page_config(page_title="Disabled Person Detector", layout="wide")
-st.title("♿ Live Disabled Person Detector")
-st.markdown("The camera will detect disabled persons in real-time.")
+# Alert sound
+ALERT_SOUND = "alert.wav"
 
-# Sound alert file
-alert_sound = "alert.wav"
+# Session state for start/stop camera
+if 'run_camera' not in st.session_state:
+    st.session_state['run_camera'] = False
+if 'alert_playing' not in st.session_state:
+    st.session_state['alert_playing'] = False
 
-# Session state to avoid multiple alerts at the same time
-if "alert_playing" not in st.session_state:
-    st.session_state["alert_playing"] = False
+# Layout columns
+controls_col, video_col, prediction_col = st.columns([1,3,2])
 
-# Draw bounding boxes function
+with controls_col:
+    st.markdown("##### Controls")
+    if st.button('Start Camera', key='start'):
+        st.session_state['run_camera'] = True
+    if st.button('Stop Camera', key='stop'):
+        st.session_state['run_camera'] = False
+
+with video_col:
+    st.markdown("##### Camera Feed")
+    FRAME_WINDOW = st.empty()
+    status_text = st.empty()
+
+with prediction_col:
+    st.markdown("##### Prediction")
+    prediction_text = st.empty()
+
+FEED_WIDTH = 500  # px, adjust as needed
+
+# Draw bounding boxes
 def draw_boxes(frame, predictions):
     for pred in predictions:
         x, y = pred["x"], pred["y"]
@@ -38,38 +68,51 @@ def draw_boxes(frame, predictions):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
     return frame
 
-# Play alert sound in background
+# Play alert sound
 def play_alert():
-    if not st.session_state["alert_playing"]:
-        st.session_state["alert_playing"] = True
-        audio_file = open(alert_sound, "rb")
+    if not st.session_state['alert_playing']:
+        st.session_state['alert_playing'] = True
+        audio_file = open(ALERT_SOUND, "rb")
         st.audio(audio_file, format="audio/wav")
-        st.session_state["alert_playing"] = False
+        st.session_state['alert_playing'] = False
 
-# Video frame callback
-def callback(frame: av.VideoFrame) -> av.VideoFrame:
-    img = frame.to_ndarray(format="bgr24")
+# Camera loop
+if st.session_state['run_camera']:
+    cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    status_text.info('Camera started. Showing live predictions.')
 
-    # Save temporarily
-    temp_file = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-    cv2.imwrite(temp_file.name, img)
+    while st.session_state['run_camera'] and cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            status_text.error('Failed to read from camera.')
+            break
 
-    # Roboflow inference
-    result = CLIENT.infer(temp_file.name, model_id="disabled-person-pkgbq/2")
+        # Save temp frame for inference
+        temp_file = "frame.jpg"
+        cv2.imwrite(temp_file, frame)
 
-    # Draw boxes
-    img = draw_boxes(img, result["predictions"])
+        # Roboflow inference
+        result = CLIENT.infer(temp_file, model_id="disabled-person-pkgbq/2")
 
-    # Play alert if detected
-    if len(result["predictions"]) > 0:
-        threading.Thread(target=play_alert).start()
+        # Draw boxes
+        frame = draw_boxes(frame, result["predictions"])
 
-    return av.VideoFrame.from_ndarray(img, format="bgr24")
+        # Prediction text
+        if len(result["predictions"]) > 0:
+            prediction_text.markdown(f"🚨 Disabled Person Detected!")
+            threading.Thread(target=play_alert).start()
+        else:
+            prediction_text.markdown("No Disabled Person Detected")
 
-# Run live webcam
-webrtc_streamer(
-    key="disabled_person_detector",
-    mode=WebRtcMode.SENDRECV,
-    video_frame_callback=callback,
-    media_stream_constraints={"video": True, "audio": False},
-)
+        # Show frame
+        FRAME_WINDOW.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), width=FEED_WIDTH)
+        time.sleep(0.05)  # ~20 FPS
+
+    cap.release()
+    status_text.info('Camera stopped.')
+else:
+    status_text.warning('Camera is off. Click "Start Camera" to begin.')
+    FRAME_WINDOW.empty()
+    prediction_text.empty()
