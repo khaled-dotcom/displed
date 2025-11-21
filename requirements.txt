@@ -1,5 +1,5 @@
-numpy
-opencv-python-headless==4.7.0.72
 streamlit
 streamlit-webrtc
+numpy
+opencv-python-headless==4.7.0.72
 inference-sdk
