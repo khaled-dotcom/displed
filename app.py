@@ -16,9 +16,10 @@ st.set_page_config(page_title="Disabled Person Detector", layout="wide")
 st.title("♿ Real-time Disabled Person Detector")
 st.markdown("Live wheelchair/person-with-disability detection using Roboflow + Streamlit WebRTC")
 
-alert_sound = "alert.wav"  # sound file in project folder
+# alert sound file in project folder
+alert_sound = "alert.wav"
 
-# Draw boxes on detection
+# Draw bounding boxes
 def draw_boxes(image, predictions):
     for pred in predictions:
         x, y = pred["x"], pred["y"]
@@ -29,29 +30,28 @@ def draw_boxes(image, predictions):
         x1, y1 = int(x - w/2), int(y - h/2)
         x2, y2 = int(x + w/2), int(y + h/2)
 
-        cv2.rectangle(image, (x1,y1), (x2,y2), (0,255,0), 3)
-        cv2.putText(image, f"{cls} {conf:.2f}", (x1,y1-10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 3)
-
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 3)
+        cv2.putText(image, f"{cls} {conf:.2f}", (x1, y1-10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
     return image
 
-# WebRTC video callback
+# Webcam frame callback
 def video_callback(frame):
     img = frame.to_ndarray(format="bgr24")
     cv2.imwrite("frame.jpg", img)
 
-    # Model inference
+    # Inference
     result = CLIENT.infer("frame.jpg", model_id="disabled-person-pkgbq/2")
 
-    # Draw predictions
+    # Draw boxes
     img = draw_boxes(img, result["predictions"])
 
-    # Alarm trigger
+    # Trigger detection flag
     st.session_state["detected"] = len(result["predictions"]) > 0
 
     return img
 
-# Live camera
+# Run WebRTC streamer
 webrtc_streamer(
     key="realtime",
     mode=WebRtcMode.SENDRECV,
